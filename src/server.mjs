@@ -10,6 +10,27 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const getArgs = () =>
+  process.argv.reduce((args, arg) => {
+    // long arg
+    if (arg.slice(0, 2) === "--") {
+      const longArg = arg.split("=");
+      const longArgFlag = longArg[0].slice(2);
+      const longArgValue = longArg.length > 1 ? longArg[1] : true;
+      args[longArgFlag] = longArgValue;
+    }
+    // flags
+    else if (arg[0] === "-") {
+      const flags = arg.slice(1).split("");
+      flags.forEach((flag) => {
+        args[flag] = true;
+      });
+    }
+    return args;
+  }, {});
+
+const args = getArgs();
+
 // Fonction pour charger la config d'un salon
 function loadConfig(salon) {
   const configPath = path.join(__dirname, "../streams", salon, "config.json");
@@ -174,7 +195,7 @@ async function stopStreamPuppeteer(salon) {
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = args.port || 3000;
 
 app.use(express.json());
 
