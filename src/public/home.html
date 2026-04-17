@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Gestion des Streams</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%);
+      color: #e0e0e0;
+      padding: 40px 20px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      color: #fff;
+      font-size: 2.5em;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 40px;
+    }
+    .streams-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    .stream-card {
+      background: #2d2d3d;
+      border: 1px solid #404050;
+      border-radius: 8px;
+      padding: 20px;
+      transition: all 0.3s ease;
+    }
+    .stream-card:hover {
+      background: #353545;
+      border-color: #5050ff;
+      box-shadow: 0 0 20px rgba(80, 80, 255, 0.3);
+    }
+    .stream-card h2 {
+      margin-bottom: 10px;
+      color: #fff;
+      font-size: 1.3em;
+    }
+    .stream-id {
+      color: #888;
+      font-size: 0.85em;
+      margin-bottom: 15px;
+      font-family: monospace;
+      word-break: break-all;
+    }
+    .stream-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: none;
+      width: 40px;
+      height: 40px;
+      padding: 8px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      text-decoration: none;
+      text-align: center;
+      transition: all 0.2s ease;
+      font-size: 1.2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-config {
+      background: #5050ff;
+      color: white;
+    }
+    .btn-config:hover {
+      background: #6666ff;
+    }
+    .btn-show {
+      background: #50aa50;
+      color: white;
+    }
+    .btn-show:hover {
+      background: #66cc66;
+    }
+    .btn-delete {
+      background: #aa3050;
+      color: white;
+    }
+    .btn-delete:hover {
+      background: #cc4466;
+    }
+    .btn-header {
+      background: #5050ff;
+      color: white;
+      padding: 12px 30px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 1em;
+      transition: all 0.2s ease;
+    }
+    .btn-header:hover {
+      background: #6666ff;
+    }
+    .stream-status {
+      margin: 10px 0;
+      font-size: 0.9em;
+      color: #aaa;
+    }
+    .status-active {
+      color: #4CAF50;
+      font-weight: bold;
+    }
+    .status-inactive {
+      color: #f44336;
+      font-weight: bold;
+    }
+    .btn-toggle {
+      margin-right: 10px;
+      width: 40px;
+      height: 40px;
+      padding: 8px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 1.2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-start {
+      background: #4CAF50;
+      color: white;
+    }
+    .btn-start:hover {
+      background: #45a049;
+    }
+    .btn-stop {
+      background: #f44336;
+      color: white;
+    }
+    .btn-stop:hover {
+      background: #da190b;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #888;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal.active {
+      display: flex;
+    }
+    .modal-content {
+      background: #2d2d3d;
+      border: 1px solid #404050;
+      border-radius: 12px;
+      padding: 30px;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .modal-header h2 {
+      color: #fff;
+      margin: 0;
+      font-size: 1.5em;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #e0e0e0;
+      font-size: 1.5em;
+      cursor: pointer;
+      padding: 0;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-close:hover {
+      color: #fff;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #fff;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #404050;
+      border-radius: 5px;
+      background: #1e1e2e;
+      color: #e0e0e0;
+      font-size: 1em;
+    }
+    .form-group input:focus {
+      outline: none;
+      border-color: #5050ff;
+      box-shadow: 0 0 10px rgba(80, 80, 255, 0.3);
+    }
+    .btn-primary {
+      background: #5050ff;
+      color: white;
+      padding: 12px 30px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 1em;
+      width: 100%;
+      transition: all 0.2s ease;
+      margin-top: 10px;
+    }
+    .btn-primary:hover {
+      background: #6666ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎙️ Gestion des Streams</h1>
+      <button class="btn-header" onclick="openCreateModal()">+ Créer un stream</button>
+    </div>
+
+    <div id="streams-container" style="min-height: 200px;"></div>
+  </div>
+
+  <!-- Modal de création -->
+  <div id="createModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Créer un nouveau stream</h2>
+        <button class="modal-close" onclick="closeCreateModal()">×</button>
+      </div>
+      <div class="form-group">
+        <label for="new-name">Nom du stream</label>
+        <input type="text" id="new-name" placeholder="ex: Salon Toto">
+      </div>
+      <div class="form-group">
+        <label for="new-url">URL StreamKit</label>
+        <input type="text" id="new-url" placeholder="ex: https://streamkit.discord.com/overlay/voice/...">
+      </div>
+      <button class="btn-primary" onclick="createStream()">Créer le stream</button>
+    </div>
+  </div>
+
+  <script>
+    const createModal = document.getElementById('createModal');
+    const newNameInput = document.getElementById('new-name');
+    const newUrlInput = document.getElementById('new-url');
+
+    function openCreateModal() {
+      createModal.classList.add('active');
+      newNameInput.focus();
+    }
+
+    function closeCreateModal() {
+      createModal.classList.remove('active');
+      newNameInput.value = '';
+      newUrlInput.value = '';
+    }
+
+    if (createModal) {
+      createModal.addEventListener('click', (e) => {
+        if (e.target.id === 'createModal') {
+          closeCreateModal();
+        }
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && createModal.classList.contains('active')) {
+        closeCreateModal();
+      }
+    });
+
+    async function loadStreams() {
+      try {
+        const res = await fetch('/api/streams');
+        const streams = await res.json();
+        const container = document.getElementById('streams-container');
+        
+        if (streams.length === 0) {
+          container.innerHTML = '<div class="empty-state"><p>Aucun stream créé. Cliquez sur "+ Créer un stream" !</p></div>';
+          return;
+        }
+
+        container.innerHTML = '<div class="streams-grid">' + streams.map(stream => `
+          <div class="stream-card">
+            <h2>${stream.name}</h2>
+            <div class="stream-id">${stream.id}</div>
+            <div class="stream-status">Status: <span class="status-${stream.active ? 'active' : 'inactive'}">${stream.active ? 'Actif' : 'Inactif'}</span></div>
+            <div class="stream-actions">
+              <button class="btn btn-toggle ${stream.active ? 'btn-stop' : 'btn-start'}" onclick="toggleStream('${stream.id}')" title="${stream.active ? 'Arrêter le stream' : 'Démarrer le stream'}">${stream.active ? '⏹️' : '▶️'}</button>
+              <a href="/${stream.id}" class="btn btn-config" title="Configuration">⚙️</a>
+              <a href="/${stream.id}/show" class="btn btn-show" title="Affichage">👁️</a>
+              <button class="btn btn-delete" onclick="deleteStream('${stream.id}')" title="Supprimer">🗑️</button>
+            </div>
+          </div>
+        `).join('') + '</div>';
+      } catch (err) {
+        console.error('Erreur:', err);
+        document.getElementById('streams-container').innerHTML = '<p style="color: #f00;">Erreur: ' + err.message + '</p>';
+      }
+    }
+
+    async function createStream() {
+      const name = newNameInput.value.trim();
+      const url = newUrlInput.value.trim();
+      
+      if (!name || !url) {
+        alert('Nom et URL requis');
+        return;
+      }
+
+      const id = Date.now().toString();
+
+      try {
+        const res = await fetch('/api/streams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, name, streamkitUrl: url })
+        });
+        
+        if (!res.ok) {
+          const err = await res.json();
+          alert('Erreur: ' + err.error);
+          return;
+        }
+
+        closeCreateModal();
+        loadStreams();
+      } catch (err) {
+        console.error('Erreur:', err);
+        alert('Erreur: ' + err.message);
+      }
+    }
+
+    async function deleteStream(id) {
+      if (!confirm(`Supprimer le stream "${id}" ?`)) return;
+      
+      try {
+        const res = await fetch(`/api/streams/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const err = await res.json();
+          alert('Erreur: ' + err.error);
+          return;
+        }
+        loadStreams();
+      } catch (err) {
+        console.error('Erreur:', err);
+        alert('Erreur: ' + err.message);
+      }
+    }
+
+    async function toggleStream(id) {
+      try {
+        const res = await fetch(`/api/${id}/toggle-stream`, { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          alert('Erreur: ' + err.error);
+          return;
+        }
+        const data = await res.json();
+        loadStreams(); // Recharger pour mettre à jour le statut
+      } catch (err) {
+        console.error('Erreur:', err);
+        alert('Erreur: ' + err.message);
+      }
+    }
+
+    loadStreams();
+  </script>
+</body>
+</html>

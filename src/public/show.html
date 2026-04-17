@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Affichage Stream</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #000;
+      color: #fff;
+    }
+    #root {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+      overflow: hidden;
+    }
+    .participant {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .avatar {
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      position: relative;
+      transition: filter 0.15s ease, opacity 0.15s ease;
+      overflow: hidden;
+    }
+    .avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .participant:not(.speaking) .avatar img {
+      /* Filtre appliqué dynamiquement en JS */
+    }
+    .participant:not(.speaking) .avatar::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, var(--overlay-opacity, 0.35));
+      border-radius: inherit;
+      pointer-events: none;
+    }
+    .name {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    const salon = window.location.pathname.split('/')[1];
+    const root = document.getElementById('root');
+    let config = {};
+    let participantsMap = new Map();
+    let ws = null;
+
+    async function loadConfig() {
+      try {
+        const res = await fetch(`/api/${salon}/config`);
+        config = await res.json();
+        document.body.style.background = config.background || "#000";
+        initParticipants();
+        connectWebSocket();
+      } catch (err) {
+        console.error('Erreur lors du chargement de la config:', err);
+      }
+    }
+
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      
+      ws.onopen = () => {
+        // S'abonner au salon
+        ws.send(JSON.stringify({ type: 'subscribe', salon: salon }));
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'voiceState') {
+          applyVoiceState(data.users);
+        } else if (data.type === 'configUpdate' && data.salon === salon) {
+          config = data.config;
+          document.body.style.background = config.background || "#000";
+          initParticipants(); // Recharger les participants avec les nouvelles positions
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('Erreur WebSocket:', err);
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onclose = () => {
+        setTimeout(connectWebSocket, 3000);
+      };
+    }
+
+    function applyVisualEffects(participantDiv, participant, isSpeaking) {
+      const avatar = participantDiv.querySelector('.avatar');
+      const img = avatar.querySelector('img');
+      
+      // Récupérer les effets visuels (individuels ou globaux)
+      const visualEffects = participant.visualEffects || {};
+      const useGlobal = visualEffects.useGlobal !== false;
+      const effects = useGlobal ? (config.globalVisualEffects || {}) : visualEffects;
+      
+      // Appliquer l'effet grisé
+      const useGrayscale = effects.useGrayscale !== false;
+      if (!isSpeaking && useGrayscale) {
+        img.style.filter = 'grayscale(1)';
+        avatar.style.setProperty('--overlay-opacity', '0.35');
+      } else {
+        img.style.filter = 'none';
+        avatar.style.setProperty('--overlay-opacity', '0');
+      }
+      
+      // Appliquer les bordures avec vérification de transparence
+      const borderWidth = effects.borderWidth || 3;
+      avatar.style.border = `${borderWidth}px solid transparent`;
+      if (isSpeaking) {
+        if (effects.speakingBorderTransparent) {
+          avatar.style.border = `${borderWidth}px solid transparent`;
+        } else {
+          avatar.style.border = `${borderWidth}px solid ${effects.speakingBorderColor || '#00ff00'}`;
+        }
+      } else {
+        if (effects.silentBorderTransparent) {
+          avatar.style.border = `${borderWidth}px solid transparent`;
+        } else {
+          avatar.style.border = `${borderWidth}px solid ${effects.silentBorderColor || '#666666'}`;
+        }
+      }
+    }
+
+    function initParticipants() {
+      participantsMap.clear();
+      root.innerHTML = '';
+
+      for (const participant of config.participants) {
+        const div = document.createElement('div');
+        div.className = 'participant';
+        div.id = `participant-${participant.id}`;
+
+        // Appliquer les positions définies dans la config
+        if (participant.x !== undefined) div.style.left = participant.x + 'px';
+        if (participant.y !== undefined) div.style.top = participant.y + 'px';
+        if (participant.width !== undefined) div.style.width = participant.width + 'px';
+        if (participant.height !== undefined) div.style.height = participant.height + 'px';
+        div.style.backgroundColor = participant.bgColorTransparent ? 'transparent' : (participant.bgColor || '#000000');
+        if (participant.borderRadius !== undefined) div.style.borderRadius = participant.borderRadius + 'px';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        if (participant.image) {
+          const img = document.createElement('img');
+          img.src = participant.image;
+          img.alt = participant.displayName || participant.name;
+          avatar.appendChild(img);
+        }
+
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = participant.displayName || participant.name;
+
+        div.appendChild(avatar);
+        div.appendChild(name);
+        root.appendChild(div);
+        participantsMap.set(participant.id, { div, participant });
+        
+        // Appliquer les effets visuels initiaux (silencieux par défaut)
+        applyVisualEffects(div, participant, false);
+      }
+    }
+
+    function applyVoiceState(users) {
+      const participants = config.participants || [];
+
+      for (const userData of users) {
+        const configParticipant = participants.find(p => p.id === userData.id || p.name === userData.name);
+        if (!configParticipant) continue;
+
+        let divEntry = participantsMap.get(configParticipant.id);
+        if (!divEntry) {
+          const div = document.createElement('div');
+          div.className = 'participant';
+          div.id = `participant-${configParticipant.id}`;
+          
+          // Appliquer les positions définies dans la config
+          if (configParticipant.x !== undefined) div.style.left = configParticipant.x + 'px';
+          if (configParticipant.y !== undefined) div.style.top = configParticipant.y + 'px';
+          if (configParticipant.width !== undefined) div.style.width = configParticipant.width + 'px';
+          if (configParticipant.height !== undefined) div.style.height = configParticipant.height + 'px';
+          div.style.backgroundColor = configParticipant.bgColorTransparent ? 'transparent' : (configParticipant.bgColor || '#000000');
+          if (configParticipant.borderRadius !== undefined) div.style.borderRadius = configParticipant.borderRadius + 'px';
+          
+          const avatar = document.createElement('div');
+          avatar.className = 'avatar';
+          if (configParticipant.image) {
+            const img = document.createElement('img');
+            img.src = configParticipant.image;
+            img.alt = configParticipant.displayName || configParticipant.name;
+            avatar.appendChild(img);
+          }
+          
+          const name = document.createElement('div');
+          name.className = 'name';
+          name.textContent = configParticipant.displayName || configParticipant.name;
+          
+          div.appendChild(avatar);
+          div.appendChild(name);
+          root.appendChild(div);
+          divEntry = { div, participant: configParticipant };
+          participantsMap.set(configParticipant.id, divEntry);
+          divEntry = { div, participant: configParticipant };
+          participantsMap.set(configParticipant.id, divEntry);
+        }
+
+        // Appliquer les effets visuels selon l'état vocal
+        const isSpeaking = userData.speaking;
+        const isMuted = userData.muted;
+        
+        applyVisualEffects(divEntry.div, configParticipant, isSpeaking);
+        
+        // Gérer les classes pour la compatibilité
+        if (isSpeaking) {
+          divEntry.div.classList.add('speaking');
+          divEntry.div.classList.remove('muted');
+        } else {
+          divEntry.div.classList.remove('speaking');
+          if (isMuted) {
+            divEntry.div.classList.add('muted');
+          } else {
+            divEntry.div.classList.remove('muted');
+          }
+        }
+      }
+    }
+
+    loadConfig();
+  </script>
+</body>
+</html>

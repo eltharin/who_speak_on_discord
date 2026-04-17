@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Discord Overlay Custom</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+    #root {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    .participant {
+      position: absolute;
+      transition: box-shadow 0.15s ease, opacity 0.15s ease;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .participant img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .participant.speaking {
+      /* Aucun effet - simplement pas assombri */
+    }
+    .participant:not(.speaking) {
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .participant:not(.speaking) img {
+      filter: grayscale(1);
+      transition: filter 0.15s ease, opacity 0.15s ease;
+    }
+    .participant:not(.speaking)::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .participant.muted {
+      opacity: 0.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <div id="editForm" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:0; border:1px solid black; z-index:1000; max-height:90vh; overflow:hidden; border-radius:5px;">
+    <h3 id="editFormHeader" style="margin:0; padding:10px; background:#f0f0f0; cursor:move; user-select:none; border-bottom:1px solid #ccc;">Configuration</h3>
+    <div style="padding:20px; overflow-y:auto; max-height:calc(90vh - 50px);">
+    <label>Nom: <input id="editName" type="text"></label><br>
+    <label>Image URL: <input id="editImage" type="text"></label><br>
+    <label>Upload image: <input id="editImageFile" type="file" accept="image/*"></label><br>
+    <label>Couleur fond: <input id="editBgColor" type="color"></label><br>
+    <label>Rayon coins: <input id="editBorderRadius" type="number" min="0" step="1"></label><br>
+    
+    <h4>Position (X, Y)</h4>
+    <label>X: <input id="editX" type="number"></label><br>
+    <div style="margin: 10px 0;">
+      <button type="button" onclick="moveParticle(-10, 0)">◀ -10</button>
+      <button type="button" onclick="moveParticle(-1, 0)">◀ -1</button>
+      <button type="button" onclick="moveParticle(1, 0)">1 ▶</button>
+      <button type="button" onclick="moveParticle(10, 0)">10 ▶</button>
+    </div>
+    
+    <label>Y: <input id="editY" type="number"></label><br>
+    <div style="margin: 10px 0;">
+      <button type="button" onclick="moveParticle(0, -10)">▲ -10</button>
+      <button type="button" onclick="moveParticle(0, -1)">▲ -1</button>
+      <button type="button" onclick="moveParticle(0, 1)">▼ 1</button>
+      <button type="button" onclick="moveParticle(0, 10)">▼ 10</button>
+    </div>
+    
+    <h4>Taille (Largeur, Hauteur)</h4>
+    <label>Largeur: <input id="editWidth" type="number"></label><br>
+    <div style="margin: 10px 0;">
+      <button type="button" onclick="resizeParticle(-10, 0)">◀ -10</button>
+      <button type="button" onclick="resizeParticle(-1, 0)">◀ -1</button>
+      <button type="button" onclick="resizeParticle(1, 0)">1 ▶</button>
+      <button type="button" onclick="resizeParticle(10, 0)">10 ▶</button>
+    </div>
+    
+    <label>Hauteur: <input id="editHeight" type="number"></label><br>
+    <div style="margin: 10px 0;">
+      <button type="button" onclick="resizeParticle(0, -10)">▲ -10</button>
+      <button type="button" onclick="resizeParticle(0, -1)">▲ -1</button>
+      <button type="button" onclick="resizeParticle(0, 1)">▼ 1</button>
+      <button type="button" onclick="resizeParticle(0, 10)">▼ 10</button>
+    </div>
+    
+    <button id="editOK">OK</button>
+    <button id="editCancel">Annuler</button>
+    </div>
+  </div>
+
+  <div id="defaultsPopup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:320px; background:white; border:1px solid #333; z-index:1100; border-radius:8px; box-shadow:0 10px 30px rgba(0,0,0,0.25);">
+    <div style="padding:12px; background:#f4f4f4; border-bottom:1px solid #ccc; display:flex; justify-content:space-between; align-items:center;">
+      <strong>Defaults participants</strong>
+      <button id="defaultCloseBtn" style="background:none; border:none; font-size:18px; cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:16px; display:grid; gap:10px;">
+      <label>Image par défaut: <input id="defaultImage" type="text" style="width:100%"></label>
+      <label>Fond par défaut: <input id="defaultBgColor" type="color"></label>
+      <label>Rayon par défaut: <input id="defaultBorderRadius" type="number" min="0" step="1"></label>
+      <label>Largeur par défaut: <input id="defaultWidth" type="number" min="1"></label>
+      <label>Hauteur par défaut: <input id="defaultHeight" type="number" min="1"></label>
+      <button id="defaultSaveBtn">Sauvegarder Defaults</button>
+    </div>
+  </div>
+
+  <script>
+    const root = document.getElementById("root");
+    let config = null;
+    const participantsMap = new Map(); // id -> DOM element
+    const isEditMode = !location.search.includes('show');
+    let currentUsers = [];
+    let currentEditKey = null;
+
+    function getUserKey(user) {
+      return user.id || user.login || user.name || "";
+    }
+
+    function moveParticle(dx, dy) {
+      if (!currentEditKey) return;
+      const entry = participantsMap.get(currentEditKey);
+      if (!entry) return;
+      const p = entry.config;
+      const el = entry.el;
+      
+      p.x += dx;
+      p.y += dy;
+      
+      el.style.left = p.x + "px";
+      el.style.top = p.y + "px";
+      
+      document.getElementById("editX").value = p.x;
+      document.getElementById("editY").value = p.y;
+      
+      saveConfig();
+    }
+
+    function resizeParticle(dw, dh) {
+      if (!currentEditKey) return;
+      const entry = participantsMap.get(currentEditKey);
+      if (!entry) return;
+      const p = entry.config;
+      const el = entry.el;
+      
+      p.width = Math.max(50, p.width + dw);
+      p.height = Math.max(50, p.height + dh);
+      
+      el.style.width = p.width + "px";
+      el.style.height = p.height + "px";
+      
+      document.getElementById("editWidth").value = p.width;
+      document.getElementById("editHeight").value = p.height;
+      
+      saveConfig();
+    }
+
+    async function loadConfig() {
+      const salon = new URLSearchParams(location.search).get('salon');
+      const url = salon ? `/config?salon=${salon}` : "/config";
+      const res = await fetch(url);
+      config = await res.json();
+      document.body.style.background = config.background || "#000";
+      initParticipants();
+    }
+
+    function initParticipants() {
+      config.participants.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "participant";
+        if (isEditMode) div.classList.add("edit");
+        div.style.left = p.x + "px";
+        div.style.top = p.y + "px";
+        div.style.width = p.width + "px";
+        div.style.height = p.height + "px";
+        
+        // Appliquer la couleur de fond si elle existe
+        if (p.bgColor) {
+          div.style.backgroundColor = p.bgColor;
+        }
+        if (p.borderRadius !== undefined) {
+          div.style.borderRadius = p.borderRadius + "px";
+        }
+
+        const img = document.createElement("img");
+        img.src = p.image;
+        img.alt = p.displayName || p.id;
+
+        div.appendChild(img);
+        root.appendChild(div);
+
+        participantsMap.set(p.id, { config: p, el: div });
+
+        if (isEditMode) makeEditable(div, p);
+      });
+      if (!isEditMode) {
+        // En mode viewer, afficher les participants configurés par défaut
+        participantsMap.forEach(entry => {
+          entry.el.style.display = "block";
+        });
+      } else {
+        updateList();
+      }
+    }
+
+    function makeEditable(div, p) {
+      div.style.cursor = "move";
+      div.style.border = "2px dashed #fff";
+      
+      // Appliquer la couleur de fond si elle existe
+      if (p.bgColor) {
+        div.style.backgroundColor = p.bgColor;
+      }
+      if (p.borderRadius !== undefined) {
+        div.style.borderRadius = p.borderRadius + "px";
+      }
+
+      // Double-click pour ouvrir le formulaire
+      div.addEventListener("dblclick", () => {
+        editParticipant(p.id);
+      });
+
+      // Resize handle
+      const handle = document.createElement("div");
+      handle.style.position = "absolute";
+      handle.style.bottom = "0";
+      handle.style.right = "0";
+      handle.style.width = "10px";
+      handle.style.height = "10px";
+      handle.style.background = "red";
+      handle.style.cursor = "nw-resize";
+      div.appendChild(handle);
+
+      let isDragging = false;
+      let isResizing = false;
+      let startX, startY, startLeft, startTop, startWidth, startHeight;
+
+      div.addEventListener("mousedown", (e) => {
+        if (e.target === handle) {
+          isResizing = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          startWidth = parseInt(div.style.width);
+          startHeight = parseInt(div.style.height);
+        } else {
+          isDragging = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          startLeft = parseInt(div.style.left);
+          startTop = parseInt(div.style.top);
+        }
+        e.preventDefault();
+      });
+
+      document.addEventListener("mousemove", (e) => {
+        if (isResizing) {
+          const newWidth = Math.max(50, startWidth + (e.clientX - startX));
+          const newHeight = Math.max(50, startHeight + (e.clientY - startY));
+          div.style.width = newWidth + "px";
+          div.style.height = newHeight + "px";
+          p.width = newWidth;
+          p.height = newHeight;
+          saveConfig();
+        } else if (isDragging) {
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          div.style.left = (startLeft + dx) + "px";
+          div.style.top = (startTop + dy) + "px";
+          p.x = startLeft + dx;
+          p.y = startTop + dy;
+          saveConfig();
+        }
+      });
+
+      document.addEventListener("mouseup", () => {
+        isDragging = false;
+        isResizing = false;
+        saveConfig();
+      });
+
+      // Removed click for image change
+    }
+
+    function applyVoiceState(users) {
+      console.log("Applying voice state for", users.length, "users:", users);
+      currentUsers = users;
+      updateConnectedList();
+      if (isEditMode) updateList();
+      // users : [{ id, login, name, avatar, speaking, muted }]
+      const activeIds = new Set();
+
+      users.forEach(u => {
+        const key = getUserKey(u);
+        activeIds.add(key);
+
+        let entry = participantsMap.get(key);
+        if (!entry) {
+          // Disabled automatic addition
+          return;
+        }
+
+        const { el } = entry;
+
+        if (u.speaking) el.classList.add("speaking");
+        else el.classList.remove("speaking");
+
+        if (u.muted) el.classList.add("muted");
+        else el.classList.remove("muted");
+      });
+
+      if (activeIds.size === 0) {
+        // Pas de données vocales disponibles : ne pas cacher les participants configurés.
+        participantsMap.forEach(entry => {
+          entry.el.style.display = "block";
+          entry.el.classList.remove("speaking", "muted");
+        });
+        return;
+      }
+
+      // En mode édition, on ne masque pas les participants configurés.
+      if (!isEditMode) {
+        participantsMap.forEach((entry, key) => {
+          if (!activeIds.has(key)) {
+            entry.el.style.display = "none";
+          } else {
+            entry.el.style.display = "block";
+          }
+        });
+      } else {
+        participantsMap.forEach(entry => {
+          entry.el.style.display = "block";
+        });
+      }
+    }
+
+    function connectWS() {
+      const ws = new WebSocket(`ws://${location.host}`);
+
+      ws.onopen = () => {
+        console.log("WS connecté");
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "voiceState") {
+          applyVoiceState(data.users);
+        } else if (data.type === "configUpdate") {
+          if (!isEditMode) {
+            config = data.config;
+            document.body.style.background = config.background || "#000";
+            // Re-init participants
+            participantsMap.clear();
+            // Remove all participant divs
+            document.querySelectorAll(".participant").forEach(el => el.remove());
+            initParticipants();
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("WS fermé, tentative de reconnexion…");
+        setTimeout(connectWS, 2000);
+      };
+    }
+
+    function saveConfig(showAlert = false) {
+      const salon = new URLSearchParams(location.search).get('salon');
+      const url = salon ? `/config?salon=${salon}` : "/config";
+      const participants = Array.from(participantsMap.values()).map(entry => entry.config);
+      const newConfig = { ...config, participants };
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newConfig)
+      }).then(() => {
+        if (showAlert) alert("Config sauvegardée!");
+      });
+    }
+
+    function updateConnectedList() {
+      const list = document.getElementById("connectedList");
+      if (!list) return;
+      list.innerHTML = "";
+      currentUsers.forEach(u => {
+        const key = getUserKey(u);
+        const li = document.createElement("li");
+        const configured = participantsMap.has(key);
+        const label = u.name || u.login || u.id;
+        li.innerHTML = `${label} ${u.speaking ? "(parle)" : ""} ${u.muted ? "(muet)" : ""} ${configured ? "<em>(configurée)</em>" : `<button onclick="createConfigForUser('${key.replace(/'/g, "\\'")}')">Créer config</button>`}`;
+        list.appendChild(li);
+      });
+    }
+
+    function createConfigForUser(key) {
+      const user = currentUsers.find(u => getUserKey(u) === key);
+      if (!user) return;
+      if (participantsMap.has(key)) {
+        editParticipant(key);
+        return;
+      }
+
+const defaults = config.participantDefaults || {};
+        const p = {
+        id: key,
+        displayName: user.name || user.id,
+        image: user.avatar || defaults.image || config.defaultImage || "images/default.svg",
+        bgColor: defaults.bgColor || "#000000",
+        borderRadius: defaults.borderRadius || 0,
+        x: 100,
+        y: 100,
+        width: defaults.width || 200,
+        height: defaults.height || 200
+      };
+
+      addParticipantObject(p);
+      editParticipant(key);
+    }
+
+    function updateList() {
+      const list = document.getElementById("participantList");
+      if (!list) return;
+      list.innerHTML = "";
+      participantsMap.forEach((entry, key) => {
+        const user = currentUsers.find(u => getUserKey(u) === key);
+        const currentName = user ? (user.name || user.login || user.id) : null;
+        const display = entry.config.displayName + (currentName && currentName !== entry.config.displayName ? ` (${currentName})` : "");
+        const li = document.createElement("li");
+        li.innerHTML = `${display} <button onclick="editParticipant('${key.replace(/'/g, "\\'")}')">Config</button> <button onclick="deleteParticipant('${key.replace(/'/g, "\\'")}')">Suppr</button>`;
+        list.appendChild(li);
+      });
+    }
+
+    function deleteParticipant(key) {
+      const entry = participantsMap.get(key);
+      if (entry) {
+        entry.el.remove();
+        participantsMap.delete(key);
+        updateList();
+        saveConfig();
+      }
+    }
+
+    function editParticipant(key) {
+      const entry = participantsMap.get(key);
+      if (!entry) return;
+      const p = entry.config;
+      document.getElementById("editName").value = p.displayName;
+      document.getElementById("editImage").value = p.image;
+      document.getElementById("editBgColor").value = p.bgColor || config.participantDefaults?.bgColor || "#000000";
+      document.getElementById("editBorderRadius").value = p.borderRadius ?? (config.participantDefaults?.borderRadius || 0);
+      document.getElementById("editX").value = p.x;
+      document.getElementById("editY").value = p.y;
+      document.getElementById("editWidth").value = p.width;
+      document.getElementById("editHeight").value = p.height;
+      document.getElementById("editForm").style.display = "block";
+      currentEditKey = key;
+    }
+
+    function addParticipant() {
+      const available = currentUsers.filter(u => !participantsMap.has(getUserKey(u)));
+      if (available.length === 0) {
+        // Fallback to manual add
+        const name = prompt("Nom du participant (manuel):");
+        if (!name) return;
+        const defaults = config.participantDefaults || {};
+        const image = prompt("URL de l'image:", defaults.image || config.defaultImage || "images/default.svg");
+        const x = parseInt(prompt("Position X:", "100")) || 100;
+        const y = parseInt(prompt("Position Y:", "100")) || 100;
+        const width = parseInt(prompt("Largeur:", String(defaults.width || 200))) || 200;
+        const height = parseInt(prompt("Hauteur:", String(defaults.height || 200))) || 200;
+      const p = { id: key, displayName, image, bgColor: defaults.bgColor || "#000000", borderRadius: defaults.borderRadius || 0, x, y, width, height };
+        div.style.left = p.x + "px";
+        div.style.top = p.y + "px";
+        div.style.width = p.width + "px";
+        div.style.height = p.height + "px";
+        if (p.bgColor) {
+          div.style.backgroundColor = p.bgColor;
+        }
+        if (p.borderRadius !== undefined) {
+          div.style.borderRadius = p.borderRadius + "px";
+        }
+
+        const img = document.createElement("img");
+        img.src = p.image;
+        img.alt = p.displayName;
+
+        div.appendChild(img);
+        root.appendChild(div);
+
+        participantsMap.set(name, { config: p, el: div });
+
+        if (isEditMode) makeEditable(div, p);
+        updateList();
+        saveConfig();
+        return;
+      }
+      let msg = "Sélectionnez un numéro:\n";
+      available.forEach((u, i) => msg += `${i+1}. ${u.name || u.login || u.id}\n`);
+      const num = parseInt(prompt(msg));
+      if (isNaN(num) || num < 1 || num > available.length) return;
+      const user = available[num-1];
+      const defaults = config.participantDefaults || {};
+      const key = getUserKey(user);
+      const displayName = user.name || user.login || user.id;
+      const image = user.avatar || defaults.image || config.defaultImage || "images/default.svg";
+      const x = parseInt(prompt("Position X:", "100")) || 100;
+      const y = parseInt(prompt("Position Y:", "100")) || 100;
+      const width = parseInt(prompt("Largeur:", String(defaults.width || 200))) || 200;
+      const height = parseInt(prompt("Hauteur:", String(defaults.height || 200))) || 200;
+      const p = { id: key, displayName, image, bgColor: defaults.bgColor || "#000000", borderRadius: defaults.borderRadius || 0, x, y, width, height };
+
+      const div = document.createElement("div");
+      div.className = "participant";
+      if (isEditMode) div.classList.add("edit");
+      div.style.left = p.x + "px";
+      div.style.top = p.y + "px";
+      div.style.width = p.width + "px";
+      div.style.height = p.height + "px";
+      if (p.bgColor) {
+        div.style.backgroundColor = p.bgColor;
+      }
+      if (p.borderRadius !== undefined) {
+        div.style.borderRadius = p.borderRadius + "px";
+      }
+
+      const img = document.createElement("img");
+      img.src = p.image;
+      img.alt = p.displayName;
+
+      div.appendChild(img);
+      root.appendChild(div);
+
+      participantsMap.set(name, { config: p, el: div });
+
+      if (isEditMode) makeEditable(div, p);
+      updateList();
+      saveConfig();
+    }
+
+    function addParticipantObject(p) {
+      if (participantsMap.has(p.id)) return;
+      const div = document.createElement("div");
+      div.className = "participant";
+      if (isEditMode) div.classList.add("edit");
+      div.style.left = p.x + "px";
+      div.style.top = p.y + "px";
+      div.style.width = p.width + "px";
+      div.style.height = p.height + "px";
+      
+      // Appliquer la couleur de fond si elle existe
+      if (p.bgColor) {
+        div.style.backgroundColor = p.bgColor;
+      }
+      if (p.borderRadius !== undefined) {
+        div.style.borderRadius = p.borderRadius + "px";
+      }
+
+      const img = document.createElement("img");
+      img.src = p.image;
+      img.alt = p.displayName;
+
+      div.appendChild(img);
+      root.appendChild(div);
+
+      participantsMap.set(p.id, { config: p, el: div });
+      if (isEditMode) makeEditable(div, p);
+      updateList();
+      saveConfig();
+    }
+
+    if (isEditMode) {
+      const controls = document.createElement("div");
+      controls.style.position = "absolute";
+      controls.style.top = "10px";
+      controls.style.right = "10px";
+      controls.style.background = "rgba(0,0,0,0.8)";
+      controls.style.padding = "10px";
+      controls.style.borderRadius = "5px";
+      controls.style.color = "white";
+      controls.innerHTML = `
+
+        <label>Fond: <input id="backgroundPicker" type="color"></label><br>
+        <label>URL StreamKit: <input id="streamkitUrl" type="text" style="width:300px"></label><br>
+        <button id="saveUrlBtn">Sauvegarder URL</button><br><br>
+        <button id="defaultOpenBtn">Defaults participants</button><br><br>
+        <button id="addBtn">Ajouter Participant</button>
+        <button id="saveBtn">Sauvegarder Config</button>
+        <h4>Participants configurés:</h4>
+        <ul id="participantList" style="list-style: none; padding: 0;"></ul>
+        <h4>Participants connectés:</h4>
+        <ul id="connectedList" style="list-style: none; padding: 0;"></ul>
+      `;
+      document.body.appendChild(controls);
+      document.getElementById("addBtn").addEventListener("click", addParticipant);
+      document.getElementById("saveBtn").addEventListener("click", () => saveConfig(true));
+      document.getElementById("saveUrlBtn").addEventListener("click", () => {
+        const url = document.getElementById("streamkitUrl").value;
+        fetch("/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ streamkitUrl: url }) }).then(() => alert("URL sauvegardée. Redémarrez le serveur pour appliquer."));
+      });
+      document.getElementById("defaultOpenBtn").addEventListener("click", () => {
+        document.getElementById("defaultsPopup").style.display = "block";
+      });
+      document.getElementById("defaultCloseBtn").addEventListener("click", () => {
+        document.getElementById("defaultsPopup").style.display = "none";
+      });
+      document.getElementById("defaultSaveBtn").addEventListener("click", () => {
+        const defaults = config.participantDefaults || {};
+        defaults.image = document.getElementById("defaultImage").value;
+        defaults.bgColor = document.getElementById("defaultBgColor").value;
+        defaults.borderRadius = parseInt(document.getElementById("defaultBorderRadius").value) || 0;
+        defaults.width = parseInt(document.getElementById("defaultWidth").value) || 200;
+        defaults.height = parseInt(document.getElementById("defaultHeight").value) || 200;
+        config.participantDefaults = defaults;
+        saveConfig(true);
+        document.getElementById("defaultsPopup").style.display = "none";
+      });
+
+    }
+
+    function initBackgroundPicker() {
+      const bgPicker = document.getElementById("backgroundPicker");
+      if (!bgPicker || !config) return;
+      bgPicker.value = config.background || "#000000";
+      bgPicker.addEventListener("input", (e) => {
+        config.background = e.target.value;
+        document.body.style.background = config.background;
+        saveConfig();
+      });
+
+      const streamkitUrlInput = document.getElementById("streamkitUrl");
+      if (streamkitUrlInput) {
+        streamkitUrlInput.value = config.streamkitUrl || "";
+      }
+
+      const defaultImage = document.getElementById("defaultImage");
+      const defaultBgColor = document.getElementById("defaultBgColor");
+      const defaultBorderRadius = document.getElementById("defaultBorderRadius");
+      const defaultWidth = document.getElementById("defaultWidth");
+      const defaultHeight = document.getElementById("defaultHeight");
+      if (defaultImage && defaultBgColor && defaultBorderRadius && defaultWidth && defaultHeight) {
+        const defaults = config.participantDefaults || {};
+        defaultImage.value = defaults.image || config.defaultImage || "images/default.svg";
+        defaultBgColor.value = defaults.bgColor || "#ffffff";
+        defaultBorderRadius.value = defaults.borderRadius || 0;
+        defaultWidth.value = defaults.width || 200;
+        defaultHeight.value = defaults.height || 200;
+      }
+    }
+
+    document.getElementById("editImageFile").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const uploadPath = await uploadImageFile(file);
+        document.getElementById("editImage").value = uploadPath;
+      } catch (err) {
+        console.error(err);
+        alert("Échec de l'upload de l'image.");
+      }
+    });
+
+    async function uploadImageFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const res = await fetch('/upload-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: reader.result, name: file.name })
+            });
+            const json = await res.json();
+            if (json.path) resolve(json.path);
+            else reject(new Error('Upload failed'));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById("editOK").addEventListener("click", () => {
+      const entry = participantsMap.get(currentEditKey);
+      if (!entry) return;
+      const p = entry.config;
+      p.displayName = document.getElementById("editName").value;
+      const newImage = document.getElementById("editImage").value;
+      if (newImage !== p.image) {
+        p.image = newImage;
+        entry.el.querySelector("img").src = newImage;
+      }
+      p.bgColor = document.getElementById("editBgColor").value;
+      p.borderRadius = parseInt(document.getElementById("editBorderRadius").value) || 0;
+      entry.el.style.backgroundColor = p.bgColor;
+      entry.el.style.borderRadius = p.borderRadius + "px";
+      p.x = parseInt(document.getElementById("editX").value);
+      p.y = parseInt(document.getElementById("editY").value);
+      p.width = parseInt(document.getElementById("editWidth").value);
+      p.height = parseInt(document.getElementById("editHeight").value);
+      entry.el.style.left = p.x + "px";
+      entry.el.style.top = p.y + "px";
+      entry.el.style.width = p.width + "px";
+      entry.el.style.height = p.height + "px";
+      document.getElementById("editForm").style.display = "none";
+      updateList();
+      saveConfig();
+    });
+
+    document.getElementById("editCancel").addEventListener("click", () => {
+      document.getElementById("editForm").style.display = "none";
+    });
+
+    // Rendre le formulaire déplaçable
+    const editForm = document.getElementById("editForm");
+    const editFormHeader = document.getElementById("editFormHeader");
+    let isDraggingForm = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let formStartX = 0;
+    let formStartY = 0;
+
+    editFormHeader.addEventListener("mousedown", (e) => {
+      isDraggingForm = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      const rect = editForm.getBoundingClientRect();
+      formStartX = rect.left;
+      formStartY = rect.top;
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isDraggingForm) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      const newX = formStartX + dx;
+      const newY = formStartY + dy;
+      editForm.style.left = newX + "px";
+      editForm.style.top = newY + "px";
+      editForm.style.transform = "none";
+    });
+
+    document.addEventListener("mouseup", () => {
+      isDraggingForm = false;
+    });
+
+    loadConfig().then(() => {
+      connectWS();
+      initBackgroundPicker();
+    });
+  </script>
+</body>
+</html>
