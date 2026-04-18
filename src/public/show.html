@@ -152,7 +152,7 @@
       for (const participant of config.participants) {
         const div = document.createElement('div');
         div.className = 'participant';
-        div.id = `participant-${participant.id}`;
+        div.id = `participant-${participant.uuid}`;
 
         // Appliquer les positions définies dans la config
         if (participant.x !== undefined) div.style.left = participant.x + 'px';
@@ -189,7 +189,7 @@
       const participants = config.participants || [];
 
       for (const userData of users) {
-        const configParticipant = participants.find(p => p.id === userData.id || p.name === userData.name);
+        const configParticipant = participants.find(p => p.userId === userData.userid);
         if (!configParticipant) continue;
 
         let divEntry = participantsMap.get(configParticipant.id);

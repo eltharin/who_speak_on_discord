@@ -146,17 +146,16 @@ async function startStreamPuppeteer(salon) {
           return items.map(item => {
             const nameEl = item.querySelector("span.Voice_name__TALd9");
             const avatarEl = item.querySelector("img.voice_avatar");
-            const stableId = item.getAttribute("data-user-id") || item.dataset.userId || item.id;
             const classList = Array.from(item.classList).join(" ").toLowerCase();
             const speaking = classList.includes("speak") || classList.includes("talk") || classList.includes("active");
-            const name = nameEl?.textContent?.trim() || stableId || "";
+            const name = nameEl?.textContent?.trim() || "";
             
             return {
-              id: stableId || name,
               name,
               avatar: avatarEl?.src || "",
               speaking,
-              muted: item.classList.contains("self_mute") || item.classList.contains("deaf")
+              muted: item.classList.contains("self_mute") || item.classList.contains("deaf"),
+              userid: String(item.dataset.userid) || null
             };
           });
         });
@@ -311,8 +310,19 @@ app.get("/favicon.ico", (req, res) => {
 // Servir les fichiers statiques (images, etc.) - APRÈS les routes dynamiques
 app.use(express.static(path.join(__dirname, "public")));
 
+// Route pour l'image par defaut
+app.get('/:salon/images/default.svg', (req, res) => {
+  const { salon, filename } = req.params;
+  const filePath = path.join(__dirname, "../src/public", "images", "default.svg");
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send('Image not found');
+  }
+});
+
 // Route pour les images par salon
-app.get('/images/:salon/:filename', (req, res) => {
+app.get('/:salon/images/:filename', (req, res) => {
   const { salon, filename } = req.params;
   const filePath = path.join(__dirname, "../streams", salon, "images", filename);
   if (fs.existsSync(filePath)) {
@@ -403,6 +413,29 @@ app.post("/api/:salon/toggle-stream", (req, res) => {
   }
   
   res.json({ active: config.active, success: true });
+});
+
+// Endpoint pour mettre à jour les participants avec leurs IDs
+app.post("/api/:salon/participants", (req, res) => {
+  const { salon } = req.params;
+  if (!salon || salon === 'null' || salon === 'undefined') return res.status(400).json({ error: "Salon invalide" });
+  
+  const configPath = path.join(__dirname, "../streams", salon, "config.json");
+  let config = loadConfig(salon);
+  
+  // Ajouter l'ID utilisateur dans la config de participant
+  if (req.body.participants && Array.isArray(req.body.participants)) {
+    config.participants = req.body.participants.map(p => ({
+      ...p,
+      userid: p.userid || null
+    }));
+  }
+  
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  
+  // Envoyer aux clients du salon
+  broadcastToSalon(salon, { type: "participantsUpdate", participants: config.participants, salon });
+  res.json({ success: true, participants: config.participants });
 });
 
 // Endpoint pour sauvegarder la config
