@@ -78,8 +78,7 @@ async function startStreamPuppeteer(salon) {
   console.log(`Démarrage du stream ${salon}...`);
 
   let browser = null;
-  let launchOptions = { headless: config.headless === true }; // Headless seulement si explicitement demandé
-  console.log(`Mode navigateur: ${launchOptions.headless ? 'headless' : 'avec fenêtre visible'}`);
+  let launchOptions = { headless: false, windowState: 'minimized' }; 
   
   if (!launchOptions.headless) {
     // Arguments pour rendre la fenêtre visible et accessible
