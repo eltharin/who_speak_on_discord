@@ -150,6 +150,13 @@ async function startStreamPuppeteer(salon) {
     // Polling interval
     const interval = setInterval(async () => {
       try {
+        // Vérifier si la page est toujours ouverte
+        if (page.isClosed()) {
+          console.log(`[${salon}] Page fermée, arrêt du polling`);
+          stopStreamPuppeteer(salon);
+          return;
+        }
+
         const users = await page.evaluate(() => {
           const items = [...document.querySelectorAll("li.voice_state")];
           return items.map(item => {
@@ -169,9 +176,15 @@ async function startStreamPuppeteer(salon) {
           });
         });
 
+        console.log(`[${salon}] Polling réussi: ${users.length} utilisateurs`);
         broadcastToSalon(salon, { type: "voiceState", users, salon });
       } catch (e) {
         console.error(`[${salon}] Erreur polling:`, e.message);
+        // Si c'est une erreur critique, arrêter le stream
+        if (e.message.includes('Session closed') || e.message.includes('Target closed')) {
+          console.log(`[${salon}] Erreur critique détectée, arrêt du stream`);
+          stopStreamPuppeteer(salon);
+        }
       }
     }, 500);
 
