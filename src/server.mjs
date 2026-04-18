@@ -177,19 +177,21 @@ async function startStreamPuppeteer(salon) {
 
 async function stopStreamPuppeteer(salon) {
   if (!activeStreams.has(salon)) return;
-  
+
   const stream = activeStreams.get(salon);
   if (stream.stopping) return; // Éviter les appels multiples
   stream.stopping = true;
-  
+
   clearInterval(stream.interval);
-  
+
   try {
-    await stream.browser.close();
+    if (stream.browser) {
+      await stream.browser.close();
+    }
   } catch (e) {
     console.log(`[${salon}] Browser déjà fermé:`, e.message);
   }
-  
+
   activeStreams.delete(salon);
   console.log(`✓ Stream ${salon} arrêté`);
 }
@@ -285,6 +287,9 @@ app.get("/:salon/show", (req, res) => {
 app.get("/:salon", (req, res) => {
   const { salon } = req.params;
   if (!salon || salon === 'null' || salon === 'undefined') return res.status(400).send("Salon invalide");
+  if(!fs.existsSync(path.join(__dirname, "../streams", salon, "config.json"))) {
+    return res.status(404).send("Salon non trouvé");
+  }
   
   // Auto-activer le stream si pas actif
   const config = loadConfig(salon);
@@ -296,6 +301,11 @@ app.get("/:salon", (req, res) => {
   }
   
   res.sendFile(path.join(__dirname, "public", "config.html"));
+});
+
+// Route pour favicon.ico - retourner 404 si le fichier n'existe pas
+app.get("/favicon.ico", (req, res) => {
+  res.status(404).send('Not Found');
 });
 
 // Servir les fichiers statiques (images, etc.) - APRÈS les routes dynamiques
