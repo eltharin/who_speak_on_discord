@@ -109,7 +109,12 @@ async function startStreamPuppeteer(salon) {
   }
 
   try {
-    const page = await browser.newPage();
+    const pages = await browser.pages();
+    const page = pages.length ? pages[0] : await browser.newPage();
+    if (pages.length > 1) {
+      await Promise.all(pages.slice(1).map((p) => p.close()));
+    }
+
     await page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     });
