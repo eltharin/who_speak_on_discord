@@ -92,7 +92,11 @@ async function startStreamPuppeteer(salon) {
       '--no-zygote',
       '--disable-gpu',
       '--window-size=1200,800',
-      '--window-position=0,0'
+      '--window-position=0,0',
+      // Arguments anti-détection
+      '--disable-blink-features=AutomationControlled',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor'
     ];
   }
   
