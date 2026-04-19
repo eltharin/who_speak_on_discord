@@ -7,11 +7,46 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+const args = getArgs();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const getArgs = () =>
-  process.argv.reduce((args, arg) => {
+const streamsDir = args.streamsPath || path.join(__dirname, "../../streams");
+if (!fs.existsSync(streamsDir)) {
+  fs.mkdirSync(streamsDir, { recursive: true });
+}
+
+console.log(`Dossier des streams: ${streamsDir}`);
+
+// Map pour tracker les streams actifs : salon -> { browser, page, interval, config }
+const activeStreams = new Map();
+
+
+const app = express();
+const PORT = args.port || 3000;
+
+app.use(express.json());
+
+const server = app.listen(PORT, () => {
+  console.log(`Serveur HTTP sur http://localhost:${PORT}`);
+});
+
+// WebSocket pour pousser l'état vocal au front
+const wss = new WebSocketServer({ server });
+
+// Tracker les clients WebSocket par salon
+const clientsBySalon = new Map(); // salon -> Set(clients)
+
+
+
+
+
+
+
+
+function getArgs() {
+  return process.argv.reduce((args, arg) => {
     // long arg
     if (arg.slice(0, 2) === "--") {
       const longArg = arg.split("=");
@@ -28,12 +63,12 @@ const getArgs = () =>
     }
     return args;
   }, {});
+}
 
-const args = getArgs();
 
 // Fonction pour charger la config d'un salon
 function loadConfig(salon) {
-  const configPath = path.join(__dirname, "../streams", salon, "config.json");
+  const configPath = path.join(streamsDir, salon, "config.json");
   if (!fs.existsSync(configPath)) {
     // Créer config par défaut
     const defaultConfig = {
@@ -52,16 +87,13 @@ function loadConfig(salon) {
         borderWidth: 3
       }
     };
-    fs.mkdirSync(path.join(__dirname, "../streams", salon), { recursive: true });
-    fs.mkdirSync(path.join(__dirname, "../streams", salon, "images"), { recursive: true });
+    fs.mkdirSync(path.join(streamsDir, salon), { recursive: true });
+    fs.mkdirSync(path.join(streamsDir, salon, "images"), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
     return defaultConfig;
   }
   return JSON.parse(fs.readFileSync(configPath, "utf8"));
 }
-
-// Map pour tracker les streams actifs : salon -> { browser, page, interval, config }
-const activeStreams = new Map();
 
 async function startStreamPuppeteer(salon) {
   if (activeStreams.has(salon)) {
@@ -153,6 +185,7 @@ async function startStreamPuppeteer(salon) {
         if (page.isClosed()) {
           console.log(`[${salon}] Page fermée, arrêt du polling`);
           stopStreamPuppeteer(salon);
+          clearInterval(interval);
           return;
         }
 
@@ -216,20 +249,6 @@ async function stopStreamPuppeteer(salon) {
   console.log(`✓ Stream ${salon} arrêté`);
 }
 
-const app = express();
-const PORT = args.port || 3000;
-
-app.use(express.json());
-
-const server = app.listen(PORT, () => {
-  console.log(`Serveur HTTP sur http://localhost:${PORT}`);
-});
-
-// WebSocket pour pousser l'état vocal au front
-const wss = new WebSocketServer({ server });
-
-// Tracker les clients WebSocket par salon
-const clientsBySalon = new Map(); // salon -> Set(clients)
 
 function broadcastToSalon(salon, data) {
   const msg = JSON.stringify(data);
@@ -296,7 +315,7 @@ app.get("/:salon/show", (req, res) => {
   const config = loadConfig(salon);
   if (!config.active) {
     config.active = true;
-    const configPath = path.join(__dirname, "../streams", salon, "config.json");
+    const configPath = path.join(streamsDir, salon, "config.json");
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     startStreamPuppeteer(salon);
   }
@@ -307,7 +326,7 @@ app.get("/:salon/show", (req, res) => {
 app.get("/:salon", (req, res) => {
   const { salon } = req.params;
   if (!salon || salon === 'null' || salon === 'undefined') return res.status(400).send("Salon invalide");
-  if(!fs.existsSync(path.join(__dirname, "../streams", salon, "config.json"))) {
+  if(!fs.existsSync(path.join(streamsDir, salon, "config.json"))) {
     return res.status(404).send("Salon non trouvé");
   }
   
@@ -315,7 +334,7 @@ app.get("/:salon", (req, res) => {
   const config = loadConfig(salon);
   if (!config.active) {
     config.active = true;
-    const configPath = path.join(__dirname, "../streams", salon, "config.json");
+    const configPath = path.join(streamsDir, salon, "config.json");
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     startStreamPuppeteer(salon);
   }
@@ -345,7 +364,7 @@ app.get('/:salon/images/default.svg', (req, res) => {
 // Route pour les images par salon
 app.get('/:salon/images/:filename', (req, res) => {
   const { salon, filename } = req.params;
-  const filePath = path.join(__dirname, "../streams", salon, "images", filename);
+  const filePath = path.join(streamsDir, salon, "images", filename);
   if (fs.existsSync(filePath)) {
     res.sendFile(filePath);
   } else {
@@ -355,12 +374,12 @@ app.get('/:salon/images/:filename', (req, res) => {
 
 // Route pour lister les streams
 app.get("/api/streams", (req, res) => {
-  const streamsDir = path.join(__dirname, "../streams");
+  const streamsPath = path.join(streamsDir);
   const streams = [];
-  if (fs.existsSync(streamsDir)) {
-    const folders = fs.readdirSync(streamsDir).filter(f => fs.statSync(path.join(streamsDir, f)).isDirectory());
+  if (fs.existsSync(streamsPath)) {
+    const folders = fs.readdirSync(streamsPath).filter(f => fs.statSync(path.join(streamsPath, f)).isDirectory());
     for (const folder of folders) {
-      const configPath = path.join(streamsDir, folder, "config.json");
+      const configPath = path.join(streamsPath, folder, "config.json");
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath));
         streams.push({ id: folder, name: config.name || folder, active: config.active || false });
@@ -374,7 +393,7 @@ app.get("/api/streams", (req, res) => {
 app.post("/api/streams", (req, res) => {
   const { id, name, streamkitUrl } = req.body;
   if (!id || !name) return res.status(400).json({ error: "ID et nom requis" });
-  const streamDir = path.join(__dirname, "../streams", id);
+  const streamDir = path.join(streamsDir, id);
   if (fs.existsSync(streamDir)) return res.status(400).json({ error: "Stream existe déjà" });
   fs.mkdirSync(streamDir);
   fs.mkdirSync(path.join(streamDir, "images"));
@@ -394,7 +413,7 @@ app.post("/api/streams", (req, res) => {
 app.delete("/api/streams/:salon", (req, res) => {
   const { salon } = req.params;
   if (!salon || salon === 'null' || salon === 'undefined') return res.status(400).json({ error: "Salon invalide" });
-  const streamDir = path.join(__dirname, "../streams", salon);
+  const streamDir = path.join(streamsDir, salon);
   if (fs.existsSync(streamDir)) {
     fs.rmSync(streamDir, { recursive: true });
   }
@@ -424,7 +443,7 @@ app.post("/api/:salon/toggle-stream", (req, res) => {
   const config = loadConfig(salon);
   config.active = !config.active;
   
-  const configPath = path.join(__dirname, "../streams", salon, "config.json");
+  const configPath = path.join(streamsDir, salon, "config.json");
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   
   if (config.active) {
@@ -441,7 +460,7 @@ app.post("/api/:salon/participants", (req, res) => {
   const { salon } = req.params;
   if (!salon || salon === 'null' || salon === 'undefined') return res.status(400).json({ error: "Salon invalide" });
   
-  const configPath = path.join(__dirname, "../streams", salon, "config.json");
+  const configPath = path.join(streamsDir, salon, "config.json");
   let config = loadConfig(salon);
   
   // Ajouter l'ID utilisateur dans la config de participant
@@ -463,7 +482,7 @@ app.post("/api/:salon/participants", (req, res) => {
 app.post("/api/:salon/config", (req, res) => {
   const { salon } = req.params;
   if (!salon || salon === 'null' || salon === 'undefined') return res.status(400).json({ error: "Salon invalide" });
-  const configPath = path.join(__dirname, "../streams", salon, "config.json");
+  const configPath = path.join(streamsDir, salon, "config.json");
   let config = loadConfig(salon);
   
   // Garder la valeur "active" si elle n'est pas fournie
@@ -497,7 +516,7 @@ app.post("/api/:salon/upload-image", (req, res) => {
   const base64Data = match[2];
   const ext = path.extname(name) || "";
   const safeExt = ext || mimeType.split("/")[1] || "png";
-  const imagesDir = path.join(__dirname, "../streams", salon, "images");
+  const imagesDir = path.join(streamsDir, salon, "images");
   if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
   const fileName = `upload-${Date.now()}.${safeExt.replace(/[^a-z0-9]/gi, "")}`;
   const filePath = path.join(imagesDir, fileName);
