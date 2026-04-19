@@ -26,7 +26,7 @@ const activeStreams = new Map();
 const app = express();
 const PORT = args.port || 3000;
 
-app.use(express.json());
+app.use(express.json({limit: '50mb'}));
 
 const server = app.listen(PORT, () => {
   console.log(`Serveur HTTP sur http://localhost:${PORT}`);
@@ -522,7 +522,7 @@ app.post("/api/:salon/upload-image", (req, res) => {
   const filePath = path.join(imagesDir, fileName);
 
   fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
-  res.json({ path: `/images/${salon}/${fileName}` });
+  res.json({ path: `/${salon}/images/${fileName}` });
 });
 
 
